@@ -4,6 +4,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 from log_helper import log_action
 from drive_builder import build_drive_tree
+from datetime import datetime, timedelta
 
 with open('telegram_settings.json', encoding='utf-8') as f:
     settings = json.load(f)
@@ -50,6 +51,62 @@ async def cmd_help(message: types.Message):
     await message.answer(texts["help"])
 
 
+@dp.callback_query_handler(lambda c: c.data.startswith('find_file:'))
+async def find_file_in_instrument(callback: types.CallbackQuery):
+    instr_name = callback.data.split(':', 1)[1]
+    dp.current_search_instr = instr_name
+    try:
+        await callback.message.edit_text(texts['enter_search_query'])
+    except:
+        await callback.message.answer(texts['enter_search_query'])
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith('recent_files:'))
+async def show_recent_files(callback: types.CallbackQuery):
+    instr_name = callback.data.split(':', 1)[1]
+    instrument = next((i for i in drive_tree.instruments if i.name == instr_name), None)
+    if not instrument:
+        try:
+            await callback.message.edit_text(texts['no_programs'])
+        except:
+            await callback.message.answer(texts['no_programs'])
+        return
+
+    recent_days = config["lookup_interval"]  # how many days back to look
+    now = datetime.now()
+    recent_files = []
+
+    for prog in instrument.programs:
+        for file in prog.files:
+            try:
+                file_dt = datetime.strptime(file.modified_time, "%d.%m.%Y %H:%M")
+                if now - file_dt <= timedelta(days=recent_days):
+                    recent_files.append((prog.name, file))
+            except Exception as e:
+                print(f"Failed to parse date for file {file.name}: {e}")
+
+    if recent_files:
+        text = f"🆕 Недавно изменённые файлы ({recent_days} дней):\n\n"
+        for prog_name, file in recent_files:
+            text += f"📄 <b>{file.name}</b>\nПрограмма: {prog_name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n"
+    else:
+        text = f"Нет недавно изменённых файлов."
+
+    kb = InlineKeyboardMarkup()
+    for prog in instrument.programs:
+        kb.add(InlineKeyboardButton(prog.name, callback_data=f"program:{instr_name}:{prog.name}"))
+    kb.add(
+        InlineKeyboardButton(texts["btn_find"], callback_data=f"find_file:{instr_name}"),
+        InlineKeyboardButton(texts["btn_recent"], callback_data=f"recent_files:{instr_name}")
+    )
+    kb.add(InlineKeyboardButton(texts["btn_home"], callback_data="home"))
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode='HTML')
+    except:
+        await callback.message.answer(text, reply_markup=kb, parse_mode='HTML')
+
+
 @dp.callback_query_handler(lambda c: c.data.startswith('instrument:'))
 async def choose_program(callback: types.CallbackQuery):
     instr_name = callback.data.split(':', 1)[1]
@@ -63,6 +120,8 @@ async def choose_program(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup()
     for prog in instrument.programs:
         kb.add(InlineKeyboardButton(prog.name, callback_data=f"program:{instr_name}:{prog.name}"))
+    kb.add(InlineKeyboardButton(texts["btn_find"], callback_data=f"find_file:{instr_name}"))
+    InlineKeyboardButton(texts["btn_recent"], callback_data=f"recent_files:{instr_name}")
     try:
         await callback.message.edit_text(texts['choose_program'].format(instrument=instr_name), reply_markup=kb)
     except:
@@ -95,6 +154,40 @@ async def choose_file(callback: types.CallbackQuery):
         await callback.message.edit_text(text, reply_markup=kb)
     except:
         await callback.message.answer(text, reply_markup=kb)
+
+
+@dp.message_handler(lambda message: True)
+async def handle_search_query(message: types.Message):
+    query = message.text.lower()
+    results = []
+
+    instr_name = getattr(dp, 'current_search_instr', None)
+
+    if instr_name:
+        instrument = next((i for i in drive_tree.instruments if i.name == instr_name), None)
+        if instrument:
+            for prog in instrument.programs:
+                for file in prog.files:
+                    if query in file.name.lower():
+                        results.append(f"📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}")
+    else:
+        # fallback: search everywhere
+        for instr in drive_tree.instruments:
+            for prog in instr.programs:
+                for file in prog.files:
+                    if query in file.name.lower():
+                        results.append(f"📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}")
+
+    text = texts['search_results'] + "\n\n" + "\n\n".join(results) if results else texts['no_results']
+
+    try:
+        await message.reply_to_message.edit_text(text)
+    except:
+        await message.answer(text)
+
+    # reset search instrument after handling
+    if hasattr(dp, 'current_search_instr'):
+        del dp.current_search_instr
 
 
 @dp.callback_query_handler(lambda c: c.data == 'home')

@@ -52,6 +52,12 @@ def build_drive_tree():
             programs=programs
         ))
 
+    # sort by custom order
+    custom_order = config.get("instrument_order", [])
+    instruments.sort(
+        key=lambda x: custom_order.index(x.name) if x.name in custom_order else len(custom_order)
+    )
+
     tree = DriveLibrary(
         instruments=instruments,
         last_updated=datetime.now().strftime("%d.%m.%Y %H:%M")
