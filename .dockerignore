@@ -1,0 +1,14 @@
+telegram_settings.json
+config.json
+service_account.json
+drive_cache.json
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git
+.vscode
+.idea
+.DS_Store
+venv/

@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: libraryhelperbot
+    volumes:
+      - ./telegram_settings.json:/app/telegram_settings.json:ro
+      - ./config.json:/app/config.json:ro
+      - ./service_account.json:/app/service_account.json:ro
+    restart: unless-stopped
