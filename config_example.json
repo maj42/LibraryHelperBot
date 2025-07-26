@@ -1,0 +1,6 @@
+{
+  "folder_id": "FOLDER ID HERE",
+  "excluded_folders": ["EXCLUDE", "FOLDERS", "HERE"],
+  "alert_template": "{added} new files in {folder}.",
+  "sleep_seconds": 60
+}

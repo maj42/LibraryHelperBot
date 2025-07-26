@@ -1,0 +1,10 @@
+# created by virtualenv automatically
+service_account.json
+telegram_settings.json
+config.json
+drive_cache.json
+
+venv/
+*.log
+.idea/
+__pycache__/
