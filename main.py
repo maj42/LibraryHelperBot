@@ -5,10 +5,6 @@ from aiogram.utils import executor
 from log_helper import log_action
 from drive_builder import build_drive_tree
 from datetime import datetime, timedelta
-import pytz
-
-LOCAL_TZ = pytz.timezone('Asia/Yekaterinburg')
-UTC_TZ = pytz.utc
 
 with open('telegram_settings.json', encoding='utf-8') as f:
     settings = json.load(f)
@@ -84,9 +80,9 @@ async def cmd_recent(message: types.Message):
                     print(f"Failed to parse date for file {file.name}: {e}")
 
     if recent_files:
-        last_change_str = last_change_time.astimezone(LOCAL_TZ).strftime("%d.%m.%Y %H:%M") if last_change_time else "?"
+        last_change_str = last_change_time.strftime("%d.%m.%Y %H:%M") if last_change_time else "?"
         text = (
-            f"🆕 Изменения за последние {recent_days} дней:\n\n"
+            f"🆕 Изменения за последние дни({recent_days}):\n\n"
             f"📅 Последнее изменение: <b>{last_change_str}</b>\n"
             f"📦 Количество изменённых файлов: <b>{len(recent_files)}</b>\n\n"
             f"📁 Программы с изменениями:\n"
@@ -124,7 +120,7 @@ async def show_recent_files(callback: types.CallbackQuery):
             await callback.message.answer(texts['no_programs'])
         return
 
-    recent_days = config["lookup_interval"]  # how many days back to look
+    recent_days = config["lookup_interval"]
     now = datetime.now()
     recent_files = []
 
@@ -137,13 +133,6 @@ async def show_recent_files(callback: types.CallbackQuery):
             except Exception as e:
                 print(f"Failed to parse date for file {file.name}: {e}")
 
-    if recent_files:
-        text = f"🆕 Недавно изменённые файлы ({recent_days} дней):\n\n"
-        for prog_name, file in recent_files:
-            text += f"📄 <b>{file.name}</b>\nПрограмма: {prog_name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n"
-    else:
-        text = f"Нет недавно изменённых файлов."
-
     kb = InlineKeyboardMarkup()
     for prog in instrument.programs:
         kb.add(InlineKeyboardButton(prog.name, callback_data=f"program:{instr_name}:{prog.name}"))
@@ -153,10 +142,27 @@ async def show_recent_files(callback: types.CallbackQuery):
     )
     kb.add(InlineKeyboardButton(texts["btn_home"], callback_data="home"))
 
-    try:
-        await callback.message.edit_text(text, reply_markup=kb, parse_mode='HTML')
-    except:
-        await callback.message.answer(text, reply_markup=kb, parse_mode='HTML')
+    if recent_files:
+        header = f"🆕 Недавно изменённые файлы (Дней: {recent_days}):\n\n"
+        blocks = [
+            f"📄 <b>{file.name}</b>\nПрограмма: {prog_name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n"
+            for prog_name, file in recent_files
+        ]
+        parts = split_long_message(header, blocks)
+        for i, part in enumerate(parts):
+            if i == 0:
+                try:
+                    await callback.message.edit_text(part, reply_markup=kb, parse_mode='HTML')
+                except:
+                    await callback.message.answer(part, reply_markup=kb, parse_mode='HTML')
+            else:
+                await callback.message.answer(part, parse_mode='HTML')
+    else:
+        text = "Нет недавно изменённых файлов."
+        try:
+            await callback.message.edit_text(text, reply_markup=kb)
+        except:
+            await callback.message.answer(text, reply_markup=kb)
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith('instrument:'))
@@ -222,63 +228,38 @@ async def handle_search_query(message: types.Message):
             for prog in instrument.programs:
                 for file in prog.files:
                     if query in file.name.lower():
-                        results.append(f"📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}")
+                        results.append(f"📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n")
     else:
-        # fallback: search everywhere
         for instr in drive_tree.instruments:
             for prog in instr.programs:
                 for file in prog.files:
                     if query in file.name.lower():
-                        results.append(f"[{instr.name}] 📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}")
+                        results.append(f"[{instr.name}] 📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n")
+
+    kb = InlineKeyboardMarkup()
+    if instr_name:
+        kb.add(
+            InlineKeyboardButton(texts["btn_search_again"], callback_data=f"find_file:{instr_name}"),
+            InlineKeyboardButton(texts["btn_back_instr"], callback_data=f"instrument:{instr_name}")
+        )
+    else:
+        kb.add(
+            InlineKeyboardButton(texts["btn_search_again"], callback_data="find_file:all"),
+            InlineKeyboardButton(texts["btn_home"], callback_data="home")
+        )
 
     if results:
-        # build buttons
-        kb = InlineKeyboardMarkup()
-        if instr_name:
-            kb.add(
-                InlineKeyboardButton(texts["btn_search_again"], callback_data=f"find_file:{instr_name}"),
-                InlineKeyboardButton(texts["btn_back_instr"], callback_data=f"instrument:{instr_name}")
-            )
-        else:
-            kb.add(
-                InlineKeyboardButton(texts["btn_search_again"], callback_data="find_file:all"),
-                InlineKeyboardButton(texts["btn_home"], callback_data="home")
-            )
-
-        # join results, handle Telegram limit (4096 chars)
-        text = texts['search_results'] + "\n\n"
-        parts = []
-        current = text
-        for r in results:
-            if len(current) + len(r) + 2 < 4096:
-                current += r + "\n\n"
-            else:
-                parts.append(current)
-                current = r + "\n\n"
-        if current:
-            parts.append(current)
-
+        header = texts['search_results'] + "\n\n"
+        parts = split_long_message(header, results)
         for i, part in enumerate(parts):
             if i == 0:
                 try:
-                    await message.reply(part)
+                    await message.reply(part, reply_markup=kb)
                 except:
-                    await message.answer(part)
+                    await message.answer(part, reply_markup=kb)
             else:
                 await message.answer(part)
-
     else:
-        kb = InlineKeyboardMarkup()
-        if instr_name:
-            kb.add(
-                InlineKeyboardButton(texts["btn_search_again"], callback_data=f"find_file:{instr_name}"),
-                InlineKeyboardButton(texts["btn_back_instr"], callback_data=f"instrument:{instr_name}")
-            )
-        else:
-            kb.add(
-                InlineKeyboardButton(texts["btn_search_again"], callback_data="find_file:all"),
-                InlineKeyboardButton(texts["btn_home"], callback_data="home")
-            )
         await message.answer(texts['no_results'], reply_markup=kb)
 
     # reset search instrument
@@ -295,6 +276,29 @@ async def go_home(callback: types.CallbackQuery):
         await callback.message.edit_text(texts['welcome'], reply_markup=kb)
     except:
         await callback.message.answer(texts['welcome'], reply_markup=kb)
+
+
+def split_long_message(header, blocks, max_length=4000):
+    """
+    Split a list of text blocks into message parts under max_length.
+    header: text to start first message with
+    blocks: list of strings (e.g. file descriptions)
+    Returns list of message parts.
+    """
+    parts = []
+    current = header
+
+    for block in blocks:
+        if len(current) + len(block) < max_length:
+            current += block
+        else:
+            parts.append(current)
+            current = block
+    if current:
+        parts.append(current)
+
+    return parts
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)

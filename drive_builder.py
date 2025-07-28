@@ -4,6 +4,9 @@ from google.oauth2 import service_account
 from datetime import datetime
 from drive_model import DriveLibrary, InstrumentFolder, ProgramFolder, PdfFile
 import re
+from pytz import timezone, UTC
+
+LOCAL_TZ = timezone('Asia/Yekaterinburg')
 
 with open('config.json', encoding='utf-8') as f:
     config = json.load(f)
@@ -85,5 +88,6 @@ def list_pdfs(service, parent_id):
 
 
 def format_time(iso_time):
-    dt = datetime.fromisoformat(iso_time.rstrip('Z'))
-    return dt.strftime("%d.%m.%Y %H:%M")
+    dt_utc = datetime.fromisoformat(iso_time.rstrip('Z')).replace(tzinfo=UTC)
+    dt_local = dt_utc.astimezone(LOCAL_TZ)
+    return dt_local.strftime("%d.%m.%Y %H:%M")
