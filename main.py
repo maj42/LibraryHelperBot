@@ -5,6 +5,7 @@ from aiogram.utils import executor
 from log_helper import log_action
 from drive_builder import build_drive_tree
 from datetime import datetime, timedelta
+from html import escape
 
 with open('telegram_settings.json', encoding='utf-8') as f:
     settings = json.load(f)
@@ -92,9 +93,9 @@ async def cmd_recent(message: types.Message):
         text = "Нет изменений за последние дни."
 
     try:
-        await message.answer(text, parse_mode='HTML')
-    except:
         await message.reply(text, parse_mode='HTML')
+    except:
+        await message.answer(text, parse_mode='HTML')
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith('find_file:'))
@@ -145,12 +146,16 @@ async def show_recent_files(callback: types.CallbackQuery):
     if recent_files:
         header = f"🆕 Недавно изменённые файлы (Дней: {recent_days}):\n\n"
         blocks = [
-            f"📄 <b>{file.name}</b>\nПрограмма: {prog_name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n"
+            f"📄 <a href=\"{escape(file.link)}\">{escape(file.name)}</a>\n"
+            f"Программа: {escape(prog_name)}\n"
+            f"Изм.: {escape(file.modified_time)}\n\n"
             for prog_name, file in recent_files
         ]
+
         parts = split_long_message(header, blocks)
+
         for i, part in enumerate(parts):
-            if i == 0:
+            if i == len(parts) - 1:
                 try:
                     await callback.message.edit_text(part, reply_markup=kb, parse_mode='HTML')
                 except:
@@ -192,15 +197,21 @@ async def choose_file(callback: types.CallbackQuery):
     _, instr_name, prog_name = callback.data.split(':', 2)
     instrument = next((i for i in drive_tree.instruments if i.name == instr_name), None)
     program = next((p for p in instrument.programs if p.name == prog_name), None)
+
     if not program or not program.files:
         try:
             await callback.message.edit_text(texts['no_files'])
         except:
             await callback.message.answer(texts['no_files'])
         return
-    text = texts['files'].format(program=prog_name) + "\n"
+
+    text = texts['files'].format(program=escape(prog_name)) + "\n"
     for file in program.files:
-        text += f"📄 {file.name}\nВремя изменения: {file.modified_time})\n{file.link}\n\n"
+        text += (
+            f"📄 <a href=\"{escape(file.link)}\">{escape(file.name)}</a>\n"
+            f"(Изм.: {escape(file.modified_time)})\n"
+        )
+
     log_action(callback.from_user.username, f"Viewed program {prog_name} of {instr_name}")
 
     kb = InlineKeyboardMarkup()
@@ -210,9 +221,9 @@ async def choose_file(callback: types.CallbackQuery):
     )
     kb.add(InlineKeyboardButton(texts["btn_home"], callback_data="home"))
     try:
-        await callback.message.edit_text(text, reply_markup=kb)
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode='HTML')
     except:
-        await callback.message.answer(text, reply_markup=kb)
+        await callback.message.answer(text, reply_markup=kb, parse_mode='HTML')
 
 
 @dp.message_handler(lambda message: True, chat_type=['private'])
@@ -228,13 +239,19 @@ async def handle_search_query(message: types.Message):
             for prog in instrument.programs:
                 for file in prog.files:
                     if query in file.name.lower():
-                        results.append(f"📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n")
+                        results.append(
+                            f"📄 <a href=\"{escape(file.link)}\">{escape(file.name)}</a> "
+                            f"(Изм.: {escape(file.modified_time)})\n"
+                        )
     else:
         for instr in drive_tree.instruments:
             for prog in instr.programs:
                 for file in prog.files:
                     if query in file.name.lower():
-                        results.append(f"[{instr.name}] 📄 {file.name}\nВремя изменения: {file.modified_time}\n{file.link}\n\n")
+                        results.append(
+                            f"[{escape(instr.name)}] 📄 <a href=\"{escape(file.link)}\">{escape(file.name)}</a> "
+                            f"(Изм.: {escape(file.modified_time)})\n"
+                        )
 
     kb = InlineKeyboardMarkup()
     if instr_name:
@@ -252,13 +269,13 @@ async def handle_search_query(message: types.Message):
         header = texts['search_results'] + "\n\n"
         parts = split_long_message(header, results)
         for i, part in enumerate(parts):
-            if i == 0:
+            if i == len(parts) - 1:
                 try:
-                    await message.reply(part, reply_markup=kb)
+                    await message.reply(part, reply_markup=kb, parse_mode='HTML')
                 except:
-                    await message.answer(part, reply_markup=kb)
+                    await message.answer(part, reply_markup=kb, parse_mode='HTML')
             else:
-                await message.answer(part)
+                await message.answer(part, parse_mode='HTML')
     else:
         await message.answer(texts['no_results'], reply_markup=kb)
 

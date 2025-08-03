@@ -41,17 +41,17 @@ def build_drive_tree():
             files = list_pdfs(service, prog['id'])
             pdf_files = [PdfFile(
                 name=f['name'],
-                modified_time=format_time(f['modifiedTime']),
+                modified_time=format_time(f['createdTime']),
                 link=f"https://drive.google.com/file/d/{f['id']}/view?usp=sharing"
             ) for f in files]
             programs.append(ProgramFolder(
                 name=prog['name'],
-                modified_time=format_time(prog['modifiedTime']),
+                modified_time=format_time(prog['createdTime']),
                 files=pdf_files
             ))
         instruments.append(InstrumentFolder(
             name=instr['name'],
-            modified_time=format_time(instr['modifiedTime']),
+            modified_time=format_time(instr['createdTime']),
             programs=programs
         ))
 
@@ -76,14 +76,16 @@ def build_drive_tree():
 def list_folders(service, parent_id):
     results = service.files().list(
         q=f"'{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-        fields="files(id, name, modifiedTime)").execute()
+        fields="files(id, name, createdTime)"
+    ).execute()
     return results.get('files', [])
 
 
 def list_pdfs(service, parent_id):
     results = service.files().list(
         q=f"'{parent_id}' in parents and mimeType = 'application/pdf' and trashed = false",
-        fields="files(id, name, modifiedTime)").execute()
+        fields="files(id, name, createdTime)"
+    ).execute()
     return results.get('files', [])
 
 
