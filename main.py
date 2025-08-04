@@ -5,7 +5,10 @@ from aiogram.utils import executor
 from log_helper import log_action
 from drive_builder import build_drive_tree
 from datetime import datetime, timedelta
+from pytz import timezone, UTC
 from html import escape
+
+LOCAL_TZ = timezone('Asia/Yekaterinburg')
 
 with open('telegram_settings.json', encoding='utf-8') as f:
     settings = json.load(f)
@@ -93,7 +96,7 @@ async def cmd_recent(message: types.Message):
         text = "Нет изменений за последние дни."
 
     try:
-        await message.reply(text, parse_mode='HTML')
+        await message.edit_text(text, parse_mode='HTML')
     except:
         await message.answer(text, parse_mode='HTML')
 
@@ -122,7 +125,7 @@ async def show_recent_files(callback: types.CallbackQuery):
         return
 
     recent_days = config["lookup_interval"]
-    now = datetime.now()
+    now = datetime.now(LOCAL_TZ)
     recent_files = []
 
     for prog in instrument.programs:
@@ -154,12 +157,14 @@ async def show_recent_files(callback: types.CallbackQuery):
 
         parts = split_long_message(header, blocks)
 
+        try:
+            await callback.message.edit_text(f"🆕 Недавно изменённые файлы загружены ниже ⬇️", parse_mode='HTML')
+        except:
+            pass
+
         for i, part in enumerate(parts):
             if i == len(parts) - 1:
-                try:
-                    await callback.message.edit_text(part, reply_markup=kb, parse_mode='HTML')
-                except:
-                    await callback.message.answer(part, reply_markup=kb, parse_mode='HTML')
+                await callback.message.answer(part, reply_markup=kb, parse_mode='HTML')
             else:
                 await callback.message.answer(part, parse_mode='HTML')
     else:
@@ -205,25 +210,40 @@ async def choose_file(callback: types.CallbackQuery):
             await callback.message.answer(texts['no_files'])
         return
 
-    text = texts['files'].format(program=escape(prog_name)) + "\n"
+    # Build list text parts
+    header = texts['files'].format(program=escape(prog_name)) + "\n"
+    blocks = []
     for file in program.files:
-        text += (
+        blocks.append(
             f"📄 <a href=\"{escape(file.link)}\">{escape(file.name)}</a>\n"
             f"(Изм.: {escape(file.modified_time)})\n"
         )
 
-    log_action(callback.from_user.username, f"Viewed program {prog_name} of {instr_name}")
+    parts = split_long_message(header, blocks)
 
+    # Build keyboard
     kb = InlineKeyboardMarkup()
     kb.add(
         InlineKeyboardButton(texts["btn_check_again"], callback_data=f"program:{instr_name}:{prog_name}"),
         InlineKeyboardButton(texts["btn_other_program"], callback_data=f"instrument:{instr_name}")
     )
     kb.add(InlineKeyboardButton(texts["btn_home"], callback_data="home"))
+
+    # Edit the original message to avoid clutter
     try:
-        await callback.message.edit_text(text, reply_markup=kb, parse_mode='HTML')
+        await callback.message.edit_text(f"📄 Файлы программы «{escape(prog_name)}» загружены ниже ⬇️", parse_mode='HTML')
     except:
-        await callback.message.answer(text, reply_markup=kb, parse_mode='HTML')
+        pass
+
+    # Send all parts as new messages; last one gets buttons
+    for i, part in enumerate(parts):
+        if i == len(parts) - 1:
+            await callback.message.answer(part, reply_markup=kb, parse_mode='HTML')
+        else:
+            await callback.message.answer(part, parse_mode='HTML')
+
+    # Log the action
+    log_action(callback.from_user.username, f"Viewed program {prog_name} of {instr_name}")
 
 
 @dp.message_handler(lambda message: True, chat_type=['private'])
@@ -268,18 +288,15 @@ async def handle_search_query(message: types.Message):
     if results:
         header = texts['search_results'] + "\n\n"
         parts = split_long_message(header, results)
+
         for i, part in enumerate(parts):
             if i == len(parts) - 1:
-                try:
-                    await message.reply(part, reply_markup=kb, parse_mode='HTML')
-                except:
-                    await message.answer(part, reply_markup=kb, parse_mode='HTML')
+                await message.answer(part, reply_markup=kb, parse_mode='HTML')
             else:
                 await message.answer(part, parse_mode='HTML')
     else:
         await message.answer(texts['no_results'], reply_markup=kb)
 
-    # reset search instrument
     if hasattr(dp, 'current_search_instr'):
         del dp.current_search_instr
 
